@@ -1,5 +1,5 @@
 [project]
-name = "jev-game-test"
+name = "gm-autoplayer"
 version = "0.1.0"
 description = "Pure-LLM browser-game player: a LangChain agent driving the Playwright MCP server"
 requires-python = ">=3.12,<3.14"

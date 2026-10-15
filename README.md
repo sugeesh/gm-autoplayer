@@ -1,6 +1,6 @@
-# jev-game-test
+# gm-autoplayer
 
-An AI that plays browser games (like [slither.io](http://slither.io)) by looking at the screen and moving the
+An AI agent that plays browser games (like [slither.io](http://slither.io)) by looking at the screen and moving the
 mouse or pressing keys, live, one decision at a time. You choose **who plays** (the "brain"):
 
 - **`llm`**: a chat model such as GPT looks at each screenshot and calls the browser's mouse/keyboard tools itself.
@@ -21,7 +21,7 @@ hidden bot running in the page: every move comes from the model.
 
 ---
 
-## Quick start (from zero)
+## Quick start
 
 Tested on Linux. macOS works the same way. On Windows, use WSL or adapt the shell commands.
 
@@ -31,37 +31,29 @@ You need four things on your machine:
 
 | Tool | Why | Check it | Install |
 |---|---|---|---|
-| **git** | to get the code | `git --version` | your package manager, e.g. `sudo apt install git` |
 | **uv** | runs Python and installs the Python packages | `uv --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | **Node.js 18+** (includes `npx`) | runs the Playwright MCP server | `node --version` | [nodejs.org](https://nodejs.org) or `nvm install --lts` |
 | **Google Chrome** | the browser the AI plays in | `google-chrome --version` | [google.com/chrome](https://www.google.com/chrome/), or `npx playwright install chrome` |
 
 You don't need to install Python yourself: `uv` downloads a suitable version (3.12 or 3.13) automatically.
 
-### 2. Get the code
-
-```bash
-git clone git@github.com:sugeesh/ai_study_session_notes.git
-cd ai_study_session_notes/jev-game-test
-```
-
-### 3. Install the Python packages
+### 2. Install the Python packages
 
 ```bash
 uv sync
 ```
 
-This creates a `.venv/` folder inside `jev-game-test/` with everything the project needs. Nothing is installed
+This creates a `.venv/` folder inside project folder with everything the project needs. Nothing is installed
 globally.
 
-### 4. Get your API keys
+### 3. Get your API keys
 
 | Key | Needed for | Where to get it |
 |---|---|---|
 | `OPENAI_API_KEY` | **always** (the setup step uses it to get through the game menu) and for `--brain llm` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | `TYPESAFE_API_KEY` | only for `--brain jev` and `--brain hybrid` | [console.typesafe.ai](https://console.typesafe.ai/) |
 
-### 5. Create your `.env` file
+### 4. Create your `.env` file
 
 ```bash
 cp .env.example .env
@@ -77,7 +69,7 @@ TYPESAFE_API_KEY=...your key...
 The other settings already have sensible defaults (see [Settings](#settings) below). `.env` is git-ignored, so your
 keys won't be committed.
 
-### 6. Do a short test run
+### 5. Do a short test run
 
 Play just 5 moves to check everything works:
 
