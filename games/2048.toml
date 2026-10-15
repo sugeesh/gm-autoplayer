@@ -1,0 +1,72 @@
+# 2048: slide tiles with the arrow keys. A turn-based example showing a keyboard game needs no code changes.
+#
+# Every string is a template. Available variables:
+#   $url  $player_name  $width  $height  $center_x  $center_y
+#
+# Top-level keys are shared. Each brain reads its own section: [llm] or [jev].
+
+url = "https://play2048.co"
+
+memory = 8
+
+setup_prompt = """
+Open $url in the browser. If a cookie or consent dialog appears, dismiss it.
+Make sure the game board is visible. Stop as soon as the board is ready to play.
+"""
+
+# ---------------------------------------------------------------------------------------------
+[llm]
+
+play_tools = ["browser_press_key", "browser_mouse_click_xy"]
+
+play_prompt = """
+You are playing 2048 from screenshots. Screen: ${width}x${height} pixels.
+
+Each turn, call browser_press_key with exactly one of: ArrowUp, ArrowDown, ArrowLeft, ArrowRight.
+Equal tiles that collide merge into one. The goal is to reach the 2048 tile.
+
+Strategy:
+1. Keep your biggest tile in one corner (bottom-left) and build a chain of decreasing tiles along the bottom row.
+2. Prefer Down and Left. Use Right when needed. Only press Up when no other move changes the board.
+3. If your last move did not change the board, pick a different direction.
+
+If the screen shows "Game over", click "Try again" with browser_mouse_click_xy at the button's coordinates.
+
+Keep any text to one short line describing the board.
+"""
+
+# ---------------------------------------------------------------------------------------------
+# See games/slither.toml for the [jev] rule syntax.
+[jev]
+
+state = """
+`screen` is a ${width}x${height} screenshot of a 2048 game. `recent_moves` lists the last keys pressed.
+Strategy: keep the biggest tile in the bottom-left corner with a decreasing chain along the bottom row.
+"""
+
+[jev.questions.game_over]
+type = "noul"
+instructions = "Does `screen` show a 'Game over' message?"
+
+[jev.questions.try_again]
+type = "box"
+instructions = "the 'Try again' button in `screen`"
+
+[jev.questions.move]
+type = "choice"
+instructions = """Which arrow key is the best next move for the 2048 board in `screen`? A move that does not change \
+the board is never best. Prefer Down and Left; only choose Up when nothing else changes the board."""
+[jev.questions.move.criteria]
+ArrowDown = "slide all tiles down"
+ArrowLeft = "slide all tiles left"
+ArrowRight = "slide all tiles right"
+ArrowUp = "slide all tiles up"
+
+[[jev.rules]]
+name = "restart"
+when = { noul = "game_over", above = 0.5 }
+actions = [{ click = "try_again" }]
+
+[[jev.rules]]
+name = "slide"
+actions = [{ press_choice = "move" }]

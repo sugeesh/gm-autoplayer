@@ -1,0 +1,238 @@
+# slither.io: steer the snake with the mouse, hold the button to boost.
+#
+# Every string is a template. Available variables:
+#   $url  $player_name  $width  $height  $center_x  $center_y
+#
+# Top-level keys are shared. Each brain reads its own section: [llm] or [jev].
+
+url = "http://slither.io"
+
+# How many past moves (as text) the brain is reminded of each tick.
+memory = 5
+
+# Run once by an LLM agent with all browser tools, whatever the play brain is.
+setup_prompt = """
+Open $url in the browser. Type "$player_name" into the Nickname box and click the Play button.
+Use browser_snapshot to find the elements. Stop as soon as you have clicked Play.
+"""
+
+# ---------------------------------------------------------------------------------------------
+[llm]
+
+# MCP tools the model may call while playing (the screenshot is taken for it every tick).
+play_tools = ["browser_mouse_move_xy", "browser_mouse_down", "browser_mouse_up", "browser_mouse_click_xy"]
+
+play_prompt = """
+You are playing slither.io as the snake named "$player_name". You steer in real time from screenshots.
+
+Screen: ${width}x${height} pixels. Your snake's head is always at the centre ($center_x, $center_y).
+The snake moves toward the mouse pointer. To steer, call browser_mouse_move_xy with the point to head for;
+put the point well away from the centre (200+ px) so the direction is clear.
+Holding the left button (browser_mouse_down) boosts: faster, but you shrink. Release it with browser_mouse_up.
+
+Strategy (risky play is fine, the goal is to win):
+1. Top priority: when a snake dies it leaves a trail of big glowing orbs. Go straight for it, boost if it is close.
+2. Hunt: when a big snake's head is near, cut across in front of its head (boost to get ahead) so it crashes into your body.
+   Then turn back and eat its remains.
+3. Otherwise eat food in open areas and grow and always look at the right bottom map and go for crowded area.
+4. Never let your head touch another snake's body. If a body is directly ahead and close, turn away hard.
+   Avoid the red border of the map (visible on the minimap, bottom-right).
+
+
+You only see the screen every couple of seconds, so think a little ahead: the snake keeps moving in the
+direction you set until your next decision.
+
+If the screen shows "Your final length was ..." with a Play Again button, you died: click Play Again
+with browser_mouse_click_xy at the button's coordinates.
+
+Each turn, call the tool(s) for your move. Keep any text to one short line describing the situation.
+"""
+
+# ---------------------------------------------------------------------------------------------
+# Jev answers typed questions; it does not call tools. Each tick all questions below are asked in one
+# request about `screen` (the screenshot), then the first rule whose `when` matches turns the answers
+# into moves.
+#
+#   when:    {noul = "<question>", above = 0.5}   or   {choice = "<question>", is = "<option>"}
+#            (no `when` = always matches, use it for the last rule)
+#   actions: {move_to = "<box question>"}  {click = "<box question>"}  {hold = true}  {release = true}
+#            {press = "<key>"}  {press_choice = "<choice question>"}
+[jev]
+
+state = """
+`screen` is a ${width}x${height} screenshot of slither.io. The player is the snake named "$player_name";
+its head is always at the centre of the screen ($center_x, $center_y) and it moves toward the mouse pointer.
+The leaderboard (top-right) and minimap (bottom-right) are overlays, not part of the play area.
+"""
+
+[jev.questions.game_over]
+type = "noul"
+instructions = "Does `screen` show the slither.io menu with 'Your final length was' and a Play Again button?"
+
+[jev.questions.play_again]
+type = "box"
+instructions = "the Play Again button in `screen`"
+
+[jev.questions.danger]
+type = "noul"
+instructions = """In `screen`, is another snake's body or head almost touching the head of the snake at the centre \
+of the screen, so that it will crash within a second?"""
+
+[jev.questions.escape]
+type = "box"
+instructions = "the largest empty area of dark background in the play area of `screen`, away from every snake"
+
+[jev.questions.dead_snake_food_visible]
+type = "noul"
+instructions = "Does `screen` show a trail of big, bright glowing orbs left behind by a snake that died?"
+
+[jev.questions.dead_snake_food]
+type = "box"
+instructions = "the trail of big, bright glowing orbs left by a dead snake in `screen`, the part nearest the centre"
+
+[jev.questions.big_snake_near]
+type = "noul"
+instructions = """In `screen`, is the head of another snake that is longer than the snake at the centre within a \
+quarter of the screen of the centre?"""
+
+[jev.questions.cut_off_point]
+type = "box"
+instructions = "the empty space directly in front of the head of the nearest other snake in `screen`"
+
+[jev.questions.food]
+type = "box"
+instructions = "the densest cluster of small food dots in the play area of `screen` that is not next to another snake"
+
+# Rules, highest priority first. Mirrors the LLM strategy above.
+[[jev.rules]]
+name = "respawn"
+when = { noul = "game_over", above = 0.5 }
+actions = [{ click = "play_again" }]
+
+[[jev.rules]]
+name = "dodge"
+when = { noul = "danger", above = 0.6 }
+actions = [{ release = true }, { move_to = "escape" }]
+
+[[jev.rules]]
+name = "feast"
+when = { noul = "dead_snake_food_visible", above = 0.6 }
+actions = [{ move_to = "dead_snake_food" }, { hold = true }]
+
+[[jev.rules]]
+name = "hunt"
+when = { noul = "big_snake_near", above = 0.6 }
+actions = [{ move_to = "cut_off_point" }, { hold = true }]
+
+[[jev.rules]]
+name = "graze"
+actions = [{ release = true }, { move_to = "food" }]
+
+# ---------------------------------------------------------------------------------------------
+# Hybrid: the big LLM sets the plan every `replan_every` seconds in the background; Jev makes every move.
+# Same rule syntax as [jev], plus:
+#   when:    {mode = "<mode>"} or {mode = ["<mode>", ...]}   the strategist's current mode
+#            (several conditions in one `when` must all hold)
+#   actions: {steer = "heading"}   head in the strategist's compass direction
+# Jev sees the plan as `plan` in its state (`plan.mode`, `plan.target`, `plan.heading`, `plan.reason`).
+[hybrid]
+
+replan_every = 2.0
+
+strategy_prompt = """
+You are the strategist for the slither.io snake named "$player_name". You do NOT steer: a fast controller makes
+several moves per second and follows your plan until you send the next one (about every 2 seconds).
+
+Screen: ${width}x${height}. The player's head is always at the centre ($center_x, $center_y).
+The controller finds your `target` on screen from your description alone, so describe it visually and by position,
+e.g. "the bright purple orb trail upper-left" or "the long red snake right of centre".
+
+Strategy (risky play is fine, the goal is to win):
+1. Top priority: when a snake dies it leaves a trail of big glowing orbs. Go straight for it.
+2. Hunt: when a big snake's head is near, cut across in front of its head so it crashes into your body,
+   then eat its remains.
+3. Otherwise eat food in open areas and grow, and use the minimap (bottom-right) to head for crowded areas.
+4. Avoid the red border of the map (visible on the minimap). The controller dodges collisions by itself.
+"""
+
+state = """
+`screen` is a ${width}x${height} screenshot of slither.io. The player is the snake named "$player_name";
+its head is always at the centre of the screen ($center_x, $center_y) and it moves toward the mouse pointer.
+The leaderboard (top-right) and minimap (bottom-right) are overlays, not part of the play area.
+`plan` is the current strategy from the player's coach: `plan.target` describes what to go for.
+"""
+
+[hybrid.modes]
+feast = "rush to the glowing orbs left by a dead snake (target = that orb trail)"
+hunt = "cut in front of a bigger snake's head so it crashes into you (target = that snake)"
+graze = "eat ordinary food nearby (target = the food cluster to go for)"
+explore = "travel toward a busier area of the map (set heading; target = what to look out for)"
+flee = "get away from a crowded, dangerous area (set heading away from it)"
+
+[hybrid.questions.game_over]
+type = "noul"
+instructions = "Does `screen` show the slither.io menu with 'Your final length was' and a Play Again button?"
+
+[hybrid.questions.play_again]
+type = "box"
+instructions = "the Play Again button in `screen`"
+
+[hybrid.questions.danger]
+type = "noul"
+instructions = """In `screen`, is another snake's body or head almost touching the head of the snake at the centre \
+of the screen, so that it will crash within a second?"""
+
+[hybrid.questions.escape]
+type = "box"
+instructions = "the largest empty area of dark background in the play area of `screen`, away from every snake"
+
+[hybrid.questions.target_visible]
+type = "noul"
+instructions = "Is the thing described in `plan.target` visible in the play area of `screen`?"
+
+[hybrid.questions.target]
+type = "box"
+instructions = "the thing described in `plan.target`, in the play area of `screen`"
+
+[hybrid.questions.cut_off_point]
+type = "box"
+instructions = "the empty space directly in front of the head of the snake described in `plan.target`, in `screen`"
+
+[hybrid.questions.food]
+type = "box"
+instructions = "the densest cluster of small food dots in the play area of `screen` that is not next to another snake"
+
+# Reflexes first (they ignore the plan), then the plan, then a fallback for before the first plan arrives.
+[[hybrid.rules]]
+name = "respawn"
+when = { noul = "game_over", above = 0.5 }
+actions = [{ click = "play_again" }]
+
+[[hybrid.rules]]
+name = "dodge"
+when = { noul = "danger", above = 0.6 }
+actions = [{ release = true }, { move_to = "escape" }]
+
+[[hybrid.rules]]
+name = "feast"
+when = { mode = "feast", noul = "target_visible", above = 0.5 }
+actions = [{ move_to = "target" }, { hold = true }]
+
+[[hybrid.rules]]
+name = "hunt"
+when = { mode = "hunt", noul = "target_visible", above = 0.5 }
+actions = [{ move_to = "cut_off_point" }, { hold = true }]
+
+[[hybrid.rules]]
+name = "go_to_target"
+when = { mode = ["graze", "explore"], noul = "target_visible", above = 0.5 }
+actions = [{ release = true }, { move_to = "target" }]
+
+[[hybrid.rules]]
+name = "follow_heading"
+when = { mode = ["explore", "flee"] }
+actions = [{ release = true }, { steer = "heading" }]
+
+[[hybrid.rules]]
+name = "graze"
+actions = [{ release = true }, { move_to = "food" }]
